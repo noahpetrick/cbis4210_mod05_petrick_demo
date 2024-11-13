@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, url_for, redirect, flash
 from app.db_connect import get_db
+from app.functions import calculate_letter_grade  # Import the function
 
 grades = Blueprint('grades', __name__)
 
@@ -13,17 +14,8 @@ def grade():
         number_grade = int(request.form['number_grade'])
         student_name = request.form['student_name']
 
-        # Determine letter grade
-        if number_grade >= 90:
-            letter_grade = "A"
-        elif number_grade >= 80:
-            letter_grade = "B"
-        elif number_grade >= 70:
-            letter_grade = "C"
-        elif number_grade >= 60:
-            letter_grade = "D"
-        else:
-            letter_grade = "you suck"
+        # Determine letter grade using the function
+        letter_grade = calculate_letter_grade(number_grade)
 
         # Insert the new grade into the database
         cursor.execute(
@@ -38,22 +30,10 @@ def grade():
     student_averages = cursor.fetchall()
 
     # Calculate letter grades based on the average number grades
-    averaged_grades = []
-    for student in student_averages:
-        avg_grade = student['avg_grade']
-        if avg_grade >= 90:
-            letter_grade = "A"
-        elif avg_grade >= 80:
-            letter_grade = "B"
-        elif avg_grade >= 70:
-            letter_grade = "C"
-        elif avg_grade >= 60:
-            letter_grade = "D"
-        else:
-            letter_grade = "you suck"
-
-        # Append each student with their calculated letter grade
-        averaged_grades.append((student['student_name'], letter_grade))
+    averaged_grades = [
+        (student['student_name'], calculate_letter_grade(student['avg_grade']))
+        for student in student_averages
+    ]
 
     return render_template('grades.html', all_grades=averaged_grades)
 
@@ -63,20 +43,11 @@ def update_grade(grade_id):
     cursor = db.cursor()
 
     if request.method == 'POST':
-        number_grade = request.form['number_grade']
+        number_grade = int(request.form['number_grade'])
         student_name = request.form['student_name']
-        number_grade = int(number_grade)
 
-        if number_grade >= 90:
-            letter_grade = "A"
-        elif number_grade >= 80:
-            letter_grade = "B"
-        elif number_grade >= 70:
-            letter_grade = "C"
-        elif number_grade >= 60:
-            letter_grade = "D"
-        else:
-            letter_grade = "you suck"
+        # Determine letter grade using the function
+        letter_grade = calculate_letter_grade(number_grade)
 
         cursor.execute(
             'UPDATE grades SET letter_grade = %s, student_name = %s, number_grade = %s WHERE grade_id = %s',
@@ -120,3 +91,39 @@ def delete_individual_grade(grade_id):
     db.commit()
     flash('Grade deleted successfully.', 'success')
     return redirect(url_for('grades.grade'))
+
+
+@grades.route('/update_individual_grade/<int:grade_id>', methods=['GET', 'POST'])
+def update_individual_grade(grade_id):
+    db = get_db()
+    cursor = db.cursor()
+
+    # Fetch current grade information based on grade_id
+    cursor.execute('SELECT * FROM grades WHERE grade_id = %s', (grade_id,))
+    current_grade = cursor.fetchone()
+
+    # Check if the grade record exists
+    if not current_grade:
+        flash('Grade record not found.', 'danger')
+        return redirect(url_for('grades.view_grades'))
+
+    if request.method == 'POST':
+        # Retrieve the updated number grade from the form
+        number_grade = int(request.form['number_grade'])
+
+        # Calculate the updated letter grade
+        letter_grade = calculate_letter_grade(number_grade)
+
+        # Update the grade in the database
+        cursor.execute(
+            'UPDATE grades SET letter_grade = %s, number_grade = %s WHERE grade_id = %s',
+            (letter_grade, number_grade, grade_id)
+        )
+        db.commit()
+        flash('Grade updated successfully.', 'success')
+
+        # Redirect to the student's grades page
+        return redirect(url_for('grades.view_grades', student_name=current_grade['student_name']))
+
+    # Render the form with the current grade information
+    return render_template('update_individual_grade.html', current_grade=current_grade)
